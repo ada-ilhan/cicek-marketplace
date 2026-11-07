@@ -1,10 +1,10 @@
 # Build context: frontend/
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /repo
 COPY . .
 RUN npm ci --no-audit --no-fund && npm run build --workspace @cicek/storefront
 
-FROM node:22-alpine
+FROM node:25-alpine
 WORKDIR /app
 # Node closes idle keep-alive connections after 5 s by default; a client (browser, proxy, test runner) that reuses a connection at
 # that moment gets ECONNRESET. Keep idle connections longer than typical client/proxy idle timeouts (60 s).
