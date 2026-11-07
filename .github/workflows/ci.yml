@@ -1,0 +1,209 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: jobs only read the repository. No job uses repository secrets; every credential below is generated per run
+# and masked.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Third-party actions are pinned to immutable commit SHAs (the comment names the release). Dependabot (see
+# .github/dependabot.yml) proposes updates for actions, NuGet, npm and Dockerfile base images; review and merge them weekly.
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      oracle:
+        # Oracle Database Free, version-pinned lite image. The image's own HEALTHCHECK gates the job until the database is open.
+        # ORACLE_PWD is derived from the run id: it protects an ephemeral container that only this job can reach.
+        image: container-registry.oracle.com/database/free:23.26.3.0-lite
+        env:
+          ORACLE_PWD: Ci_${{ github.run_id }}_${{ github.run_attempt }}_Aa1
+        ports:
+          - 1521:1521
+        options: >-
+          --health-interval 20s --health-timeout 10s --health-retries 30 --health-start-period 120s
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+      TestDatabase__DataSource: localhost:1521/FREEPDB1
+      TestDatabase__OwnerUser: CICEK_TEST_OWNER
+      TestDatabase__AppUser: CICEK_TEST_APP
+      TestDatabase__RuntimeRole: CICEK_TEST_APP_ROLE
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: backend/global.json
+      - name: Generate throwaway test-database passwords (masked, never stored)
+        working-directory: .
+        run: |
+          for name in Owner App; do
+            value="Ci$(openssl rand -hex 12)_1"
+            echo "::add-mask::$value"
+            echo "TestDatabase__${name}Password=$value" >> "$GITHUB_ENV"
+          done
+      - run: dotnet tool restore
+      - run: dotnet restore Cicek.slnx
+      - name: Vulnerable packages (direct and transitive)
+        run: |
+          dotnet list Cicek.slnx package --vulnerable --include-transitive 2>&1 | tee vulnerable.txt
+          if grep -qiE "^\s+>" vulnerable.txt; then echo "::error::vulnerable NuGet packages found"; exit 1; fi
+      - name: Format
+        run: dotnet format Cicek.slnx --verify-no-changes --no-restore
+      - name: Build (warnings as errors)
+        run: dotnet build Cicek.slnx --no-restore -c Release
+      - name: Bootstrap Oracle test schema (same implementation script DBAs use)
+        run: |
+          container=$(docker ps -q --filter publish=1521 | head -1)
+          test -n "$container" || { echo "::error::Oracle service container not found"; exit 1; }
+          docker cp ../db/bootstrap/. "$container":/tmp/bootstrap/
+          # The interactive script prompts for hidden passwords on a terminal; CI has none, so define the variables and call
+          # the implementation directly (the same way deploy/oracle/setup does).
+          umask 077
+          cat > wrapper.sql <<SQL
+          ALTER SESSION SET CONTAINER=FREEPDB1;
+          DEFINE owner_user = CICEK_TEST_OWNER
+          DEFINE app_user   = CICEK_TEST_APP
+          DEFINE app_role   = CICEK_TEST_APP_ROLE
+          DEFINE data_ts    = USERS
+          DEFINE owner_password = "$TestDatabase__OwnerPassword"
+          DEFINE app_password   = "$TestDatabase__AppPassword"
+          @/tmp/bootstrap/create_schema_users_impl.sql
+          SQL
+          sed -i 's/^ *//' wrapper.sql
+          docker cp wrapper.sql "$container":/tmp/wrapper.sql
+          rm -f wrapper.sql
+          docker exec "$container" sqlplus -S -L "/ as sysdba" @/tmp/wrapper.sql
+          docker exec "$container" rm -f /tmp/wrapper.sql
+      - name: Test (unit, architecture, Oracle integration, API)
+        run: dotnet test --solution Cicek.slnx --no-build -c Release
+      - name: OpenAPI document is up to date
+        run: |
+          # Regenerate from scratch: an up-to-date incremental build would not rewrite the file, which would make this check
+          # vacuous. A missing or different file fails the diff against the committed version.
+          rm -f openapi/cicek-api.json
+          dotnet build src/Cicek.Api/Cicek.Api.csproj -c Release --no-restore --no-incremental
+          test -s openapi/cicek-api.json
+          git diff --exit-code -- openapi/cicek-api.json
+      - name: Oracle container log (on failure)
+        if: failure()
+        run: docker logs "$(docker ps -q --filter publish=1521 | head -1)" 2>&1 | tail -n 200
+      - name: Upload test results (on failure)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-test-results
+          path: backend/**/TestResults/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      API_BASE_URL: http://localhost:5080
+      APP_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: "false"
+      NEXT_PUBLIC_DEFAULT_LOCALE: tr
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Generated API client is up to date
+        run: npm run generate:api && git diff --exit-code -- packages/api-client/src/schema.d.ts
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: E2E smoke (storefront only)
+        run: |
+          npx --workspace @cicek/storefront playwright install --with-deps chromium
+          npm run test:e2e -- --project=chromium e2e/smoke.spec.ts
+      - name: Upload Playwright report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-playwright-report
+          path: |
+            frontend/apps/storefront/playwright-report/
+            frontend/apps/storefront/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  docker-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build the three images (not pushed)
+        run: |
+          docker build -f deploy/docker/api.Dockerfile -t cicek-api:ci backend
+          docker build -f deploy/docker/migrator.Dockerfile -t cicek-migrator:ci backend
+          docker build -f deploy/docker/storefront.Dockerfile -t cicek-storefront:ci frontend
+      - name: Compose file is valid (throwaway values, masked)
+        run: |
+          umask 077
+          envfile="$(mktemp)"
+          for name in ORACLE_ADMIN_PASSWORD CICEK_OWNER_PASSWORD CICEK_APP_PASSWORD JWT_SIGNING_KEY; do
+            value="$(openssl rand -hex 24)"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$envfile"
+          done
+          docker compose -f deploy/docker-compose.yml --env-file "$envfile" config -q
+          rm -f "$envfile"
+
+  # Full stack through real health checks: Oracle -> migrator -> API -> storefront, then the whole Playwright suite (all roles,
+  # images, locales, responsive layouts, accessibility). Runs in an isolated Compose project with freshly generated secrets.
+  compose-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # The lite image keeps the runner's disk usage manageable; the stack is otherwise identical.
+      ORACLE_IMAGE: container-registry.oracle.com/database/free:23.26.3.0-lite
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies and browsers
+        working-directory: frontend
+        run: |
+          npm ci
+          npx --workspace @cicek/storefront playwright install --with-deps chromium chrome
+      - name: Start the stack and run the end-to-end suite
+        run: bash deploy/scripts/e2e-stack.sh ci
+      - name: Upload Playwright report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: compose-e2e-playwright
+          path: |
+            frontend/apps/storefront/playwright-report/
+            frontend/apps/storefront/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

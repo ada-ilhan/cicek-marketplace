@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Framework-free building blocks shared by every layer. No package references by design. -->
+</Project>

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Cicek.Api\Cicek.Api.csproj" />
+    <ProjectReference Include="..\..\src\Cicek.DbMigrator\Cicek.DbMigrator.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+# Repository text is LF (see .editorconfig); `dotnet format` and Prettier enforce it. Normalizing here keeps Windows
+# checkouts (core.autocrlf) from producing CRLF files that fail the format checks in CI.
+* text=auto eol=lf
+*.sh text eol=lf
+*.docx binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

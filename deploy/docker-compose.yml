@@ -1,0 +1,114 @@
+# Local development stack. Oracle runs from Oracle's official Database Free image (container-registry.oracle.com).
+# Usage: copy .env.example to .env, fill the passwords, then `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d`.
+# Host port 1522 avoids clashing with a natively installed Oracle listener on 1521.
+name: cicek
+
+services:
+  oracle:
+    image: ${ORACLE_IMAGE:-container-registry.oracle.com/database/free:${ORACLE_IMAGE_TAG:-latest}}
+    environment:
+      ORACLE_PWD: ${ORACLE_ADMIN_PASSWORD:?set ORACLE_ADMIN_PASSWORD in deploy/.env}
+      CICEK_OWNER_PASSWORD: ${CICEK_OWNER_PASSWORD:?set CICEK_OWNER_PASSWORD in deploy/.env}
+      CICEK_APP_PASSWORD: ${CICEK_APP_PASSWORD:?set CICEK_APP_PASSWORD in deploy/.env}
+      # Pluggable database name: FREEPDB1 (Oracle Database Free, default) or XEPDB1 (Oracle Database XE 21c).
+      ORACLE_PDB: ${ORACLE_PDB:-FREEPDB1}
+    ports:
+      - "${ORACLE_HOST_PORT:-1522}:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      # Creates CICEK_OWNER / CICEK_APP / CICEK_APP_ROLE. Mounted as a *startup* script on purpose: recent Oracle Database Free
+      # images ship a pre-built database, so the image's "setup" hook (first creation only) never runs. The script is idempotent.
+      - ./oracle/setup:/opt/oracle/scripts/startup:ro
+      - ../db/bootstrap:/opt/cicek/bootstrap:ro
+    healthcheck:
+      # Healthy = the database is open (image check) AND the application schema owner exists, so the migrator can never race
+      # the bootstrap script.
+      test:
+        - CMD-SHELL
+        - "/opt/oracle/checkDBStatus.sh >/dev/null && printf \"ALTER SESSION SET CONTAINER=$${ORACLE_PDB:-FREEPDB1};\nSET HEADING OFF FEEDBACK OFF\nSELECT 'SCHEMA_READY' FROM dba_users WHERE username = 'CICEK_OWNER';\n\" | sqlplus -S -L '/ as sysdba' | grep -q SCHEMA_READY"
+      interval: 15s
+      timeout: 20s
+      retries: 40
+      start_period: 60s
+    # Oracle needs well over Docker's default 10 s to shut down cleanly; a SIGKILL (exit 137) forces crash recovery on the next
+    # start. Observed when stopping the Free and XE containers during the Stage 7 tests.
+    stop_grace_period: 2m
+    restart: unless-stopped
+
+  migrator:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/docker/migrator.Dockerfile
+    command: ["migrate"]
+    environment:
+      Database__DataSource: oracle:1521/${ORACLE_PDB:-FREEPDB1}
+      Database__UserId: CICEK_OWNER
+      Database__Password: ${CICEK_OWNER_PASSWORD}
+      Migrator__RuntimeRole: CICEK_APP_ROLE
+    depends_on:
+      oracle:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/docker/api.Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      Database__DataSource: oracle:1521/${ORACLE_PDB:-FREEPDB1}
+      Database__UserId: CICEK_APP
+      Database__Password: ${CICEK_APP_PASSWORD}
+      Database__Schema: CICEK_OWNER
+      Auth__Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in deploy/.env}
+      # Image uploads: local disk inside the container, on a named volume. Development/test only: the API refuses
+      # Media__Provider=Local (and Marketplace__AllowAnyExternalImageHost) when ASPNETCORE_ENVIRONMENT is not Development/Testing.
+      # Per-IP sign-in/registration limit; raise it only for automated end-to-end runs (AUTH_RATE_LIMIT in deploy/.env).
+      RateLimiting__AuthPermitsPerMinute: ${AUTH_RATE_LIMIT:-10}
+      Media__Provider: Local
+      Media__LocalPath: /data/media
+    ports:
+      - "${API_HOST_PORT:-5080}:8080"
+    volumes:
+      - media-data:/data/media
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      # Readiness (database reachable), not just "process is up". The runtime image has no curl/wget, so probe with bash.
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  storefront:
+    build:
+      context: ../frontend
+      dockerfile: ../deploy/docker/storefront.Dockerfile
+    environment:
+      API_BASE_URL: http://api:8080
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      COOKIE_SECURE: "false"
+      NEXT_PUBLIC_DEFAULT_LOCALE: az
+    ports:
+      - "${STOREFRONT_HOST_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/login || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  oracle-data:
+  media-data:

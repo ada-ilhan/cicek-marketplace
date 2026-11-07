@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pure domain model: must not reference EF Core, ASP.NET Core or Oracle packages (enforced by architecture tests). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Cicek.SharedKernel\Cicek.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

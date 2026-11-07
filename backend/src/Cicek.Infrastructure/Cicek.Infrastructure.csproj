@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Oracle / EF Core / ODP.NET specifics live here and nowhere else (enforced by architecture tests). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Cicek.Application\Cicek.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Oracle.EntityFrameworkCore" />
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Versioned PL/SQL sources are embedded so that migrations deploy exactly the reviewed file contents. -->
+    <EmbeddedResource Include="Persistence\Sql\**\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cicek.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Cicek.Api.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,35 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+.vs/
+.idea/
+*.swp
+~$*
+
+# .NET
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+coverage*.xml
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Secrets — never commit real values
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+
+# Local dev image storage (Media:Provider=Local)
+.local-media/

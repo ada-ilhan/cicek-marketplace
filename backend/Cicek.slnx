@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Cicek.Api/Cicek.Api.csproj" />
+    <Project Path="src/Cicek.Application/Cicek.Application.csproj" />
+    <Project Path="src/Cicek.DbMigrator/Cicek.DbMigrator.csproj" />
+    <Project Path="src/Cicek.Domain/Cicek.Domain.csproj" />
+    <Project Path="src/Cicek.Infrastructure/Cicek.Infrastructure.csproj" />
+    <Project Path="src/Cicek.SharedKernel/Cicek.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Cicek.Api.Tests/Cicek.Api.Tests.csproj" />
+    <Project Path="tests/Cicek.Application.Tests/Cicek.Application.Tests.csproj" />
+    <Project Path="tests/Cicek.ArchitectureTests/Cicek.ArchitectureTests.csproj" />
+    <Project Path="tests/Cicek.Domain.Tests/Cicek.Domain.Tests.csproj" />
+    <Project Path="tests/Cicek.Infrastructure.Tests/Cicek.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>
