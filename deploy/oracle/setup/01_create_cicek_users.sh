@@ -22,6 +22,7 @@ DEFINE app_role   = CICEK_APP_ROLE
 DEFINE data_ts    = USERS
 DEFINE owner_password = "${CICEK_OWNER_PASSWORD}"
 DEFINE app_password   = "${CICEK_APP_PASSWORD}"
+@/opt/cicek/bootstrap/create_data_tablespace.sql
 @/opt/cicek/bootstrap/create_schema_users_impl.sql
 SQL
 

@@ -128,6 +128,7 @@ jobs:
           DEFINE data_ts    = USERS
           DEFINE owner_password = "$TestDatabase__OwnerPassword"
           DEFINE app_password   = "$TestDatabase__AppPassword"
+          @/tmp/bootstrap/create_data_tablespace.sql
           @/tmp/bootstrap/create_schema_users_impl.sql
           EXIT
           SQL
