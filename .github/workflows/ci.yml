@@ -71,9 +71,12 @@ jobs:
           test -n "$container" || { echo "::error::Oracle service container not found"; exit 1; }
           docker cp ../db/bootstrap/. "$container":/tmp/bootstrap/
           # The interactive script prompts for hidden passwords on a terminal; CI has none, so define the variables and call
-          # the implementation directly (the same way deploy/oracle/setup does).
-          umask 077
-          cat > wrapper.sql <<SQL
+          # the implementation directly (the same way deploy/oracle/setup does). The wrapper goes to SQL*Plus on stdin: nothing is
+          # written to disk, and a file copied in with `docker cp` would be root-owned (mode 600) and unreadable for the oracle user.
+          # The impl script sets its own WHENEVER SQLERROR; the lines here make a failure before it (e.g. ALTER SESSION) fail the step too.
+          docker exec -i "$container" sqlplus -S -L "/ as sysdba" <<SQL
+          WHENEVER SQLERROR EXIT SQL.SQLCODE
+          WHENEVER OSERROR EXIT FAILURE
           ALTER SESSION SET CONTAINER=FREEPDB1;
           DEFINE owner_user = CICEK_TEST_OWNER
           DEFINE app_user   = CICEK_TEST_APP
@@ -82,12 +85,8 @@ jobs:
           DEFINE owner_password = "$TestDatabase__OwnerPassword"
           DEFINE app_password   = "$TestDatabase__AppPassword"
           @/tmp/bootstrap/create_schema_users_impl.sql
+          EXIT
           SQL
-          sed -i 's/^ *//' wrapper.sql
-          docker cp wrapper.sql "$container":/tmp/wrapper.sql
-          rm -f wrapper.sql
-          docker exec "$container" sqlplus -S -L "/ as sysdba" @/tmp/wrapper.sql
-          docker exec "$container" rm -f /tmp/wrapper.sql
       - name: Test (unit, architecture, Oracle integration, API)
         run: dotnet test --solution Cicek.slnx --no-build -c Release
       - name: OpenAPI document is up to date

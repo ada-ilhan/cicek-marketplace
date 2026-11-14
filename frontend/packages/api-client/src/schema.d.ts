@@ -2147,6 +2147,7 @@ export interface operations {
             query?: {
                 status?: components["schemas"]["ProductStatus"];
                 q?: string;
+                outOfStock?: boolean;
                 page?: number;
                 pageSize?: number;
             };
