@@ -135,9 +135,39 @@ public sealed class OracleDeploymentTests(OracleTestDatabase database)
         var failure = scope.ServiceProvider.GetRequiredService<IDatabaseErrorClassifier>().Classify(exception);
         var status = await scope.ServiceProvider.GetRequiredService<IDatabaseStatusProbe>().GetStatusAsync(Ct);
 
-        Assert.Equal(DatabaseFailureKind.Unavailable, failure?.Kind);
+        // Same expectation as before; only the failure output is richer so that an unexpected provider error is visible in CI.
+        Assert.True(failure?.Kind == DatabaseFailureKind.Unavailable, DescribeUnreachable(exception, failure, status));
         Assert.False(status.IsReachable);
         Assert.StartsWith("ORA-", status.FailureCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Assertion output for the unreachable-database test: classification, the status probe's error code and the exception chain
+    /// (type, ORA number, message). Messages that mention credentials are withheld; the test itself only uses placeholder values.
+    /// </summary>
+    private static string DescribeUnreachable(Exception exception, DatabaseFailure? failure, DatabaseStatus status)
+    {
+        var chain = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var type = current is OracleException oracle ? $"{current.GetType().FullName} ORA-{oracle.Number:D5}" : current.GetType().FullName;
+            chain.Add($"{type}: {SafeMessage(current.Message)}");
+        }
+
+        var providerCode = failure?.ProviderCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none";
+        return $"Expected Unavailable but the classifier returned {failure?.Kind.ToString() ?? "null"} (provider code {providerCode}); " +
+               $"status probe: reachable={status.IsReachable}, failure={status.FailureCode ?? "none"}. Exception chain: {string.Join(" -> ", chain)}";
+    }
+
+    private static string SafeMessage(string message)
+    {
+        if (message.Contains("password", StringComparison.OrdinalIgnoreCase) || message.Contains("pwd", StringComparison.OrdinalIgnoreCase))
+        {
+            return "[withheld: message mentions credentials]";
+        }
+
+        var singleLine = string.Join(' ', message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return singleLine.Length <= 400 ? singleLine : singleLine[..400];
     }
 
     private async Task<List<string>> QueryOwnerAsync(string sql, string parameter)
