@@ -222,10 +222,6 @@ jobs:
   # Full stack through real health checks: Oracle -> migrator -> API -> storefront, then the whole Playwright suite (all roles,
   # images, locales, responsive layouts, accessibility). Runs in an isolated Compose project with freshly generated secrets.
   compose-e2e:
-    # TEMPORARILY SKIPPED (Oracle-lite diagnostic run): the lite image has no suitable application tablespace yet, so this job
-    # would only wait ~14 minutes for an Oracle container that can never become healthy. A skipped job is NOT a passing job.
-    # To restore: delete the next line (`if: ${{ false }}`) and this comment; nothing else in the job was changed.
-    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
