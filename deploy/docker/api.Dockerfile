@@ -4,7 +4,7 @@ WORKDIR /src
 COPY . .
 RUN dotnet publish src/Cicek.Api/Cicek.Api.csproj -c Release -o /app /p:OpenApiGenerateDocuments=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 WORKDIR /app
 COPY --from=build /app .
 # Writable directory for the development image store (Media__Provider=Local); a named volume mounted here inherits
