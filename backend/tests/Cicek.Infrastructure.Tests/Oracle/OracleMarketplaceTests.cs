@@ -220,11 +220,11 @@ public sealed class OracleMarketplaceTests(OracleTestDatabase database)
     }
 
     [Theory]
-    [InlineData("UPDATE {0}.AUD_AUDIT_ENTRIES SET ACTION = 'tampered'")]
-    [InlineData("DELETE FROM {0}.AUD_AUDIT_ENTRIES")]
-    [InlineData("UPDATE {0}.ORD_ORDER_STATUS_HISTORY SET REASON = 'tampered'")]
-    [InlineData("DELETE FROM {0}.ORD_ORDER_STATUS_HISTORY")]
-    public async Task Audit_and_order_history_are_append_only_for_the_runtime_user(string sql)
+    [InlineData("UPDATE {0}.AUD_AUDIT_ENTRIES SET ACTION = 'tampered'", "UPDATE", "AUD_AUDIT_ENTRIES")]
+    [InlineData("DELETE FROM {0}.AUD_AUDIT_ENTRIES", "DELETE", "AUD_AUDIT_ENTRIES")]
+    [InlineData("UPDATE {0}.ORD_ORDER_STATUS_HISTORY SET REASON = 'tampered'", "UPDATE", "ORD_ORDER_STATUS_HISTORY")]
+    [InlineData("DELETE FROM {0}.ORD_ORDER_STATUS_HISTORY", "DELETE", "ORD_ORDER_STATUS_HISTORY")]
+    public async Task Audit_and_order_history_are_append_only_for_the_runtime_user(string sql, string privilege, string table)
     {
         database.SkipIfUnavailable();
         await using var app = new OracleConnection(database.RequiredSettings.AppConnectionString());
@@ -233,7 +233,24 @@ public sealed class OracleMarketplaceTests(OracleTestDatabase database)
         command.CommandText = string.Format(System.Globalization.CultureInfo.InvariantCulture, sql, database.RequiredSettings.OwnerUser);
 
         var error = await Assert.ThrowsAsync<OracleException>(() => command.ExecuteNonQueryAsync(Ct));
-        Assert.Equal(1031, error.Number); // ORA-01031: insufficient privileges
+        AssertObjectPrivilegeDenied(error, privilege, table);
+    }
+
+    /// <summary>
+    /// The runtime user must be refused. Oracle 21c and earlier report ORA-01031 (insufficient privileges); Oracle 23ai/26ai report
+    /// ORA-41900 ("missing privilege &lt;privilege&gt; on &lt;owner&gt;.&lt;object&gt;"). ORA-41900 is accepted only when its message names the
+    /// attempted privilege and the protected table, so it proves the same denial; any other error number fails the test.
+    /// </summary>
+    private static void AssertObjectPrivilegeDenied(OracleException error, string privilege, string table)
+    {
+        if (error.Number == 1031)
+        {
+            return;
+        }
+
+        Assert.True(error.Number == 41900, $"Expected ORA-01031 or ORA-41900 but got ORA-{error.Number:D5}.");
+        Assert.Contains(privilege, error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(table, error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

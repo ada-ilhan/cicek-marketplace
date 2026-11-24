@@ -188,3 +188,89 @@ Kaynak/yapılandırma değişmediği sürece sonuçlar yeniden kullanıldı; ba�
 - E2E kök nedeni kanıtlanmadı (bkz. Görev 3); gerçek "ilk kez oluşturulan Oracle birimi" senaryosu yeniden denenmedi (XE koşusu taze birimdi ve geçti).
 - `stop_grace_period` ana yığında ancak konteyner yeniden oluşturulunca etkinleşir (onay gerekir).
 - Sonraki aşama önerisi: onaylı taban commit → uzak depo → CI'nin ilk gerçek koşusu.
+
+
+---
+
+# Aşama 7.1–7.9 – Git taban commit'i, GitHub CI ve Oracle-lite uyumluluğu (2026-11-07 → 2026-11-24)
+
+Bu bölüm, yukarıdaki "Aşama 7 – Yürütme kaydı"nın devamıdır; oradaki durum etiketleri o günkü durumu gösterir ve değiştirilmemiştir. Burada yalnızca commit geçmişi ve GitHub Actions kayıtlarıyla doğrulanabilen bilgiler vardır; doğrulanamayanlar **UNVERIFIED** ile işaretlidir. CI koşu tarihleri UTC'dir; commit tarihleri Git'in yerel saatidir (bu yüzden birkaç commit bir gün sonra görünür).
+
+Depo: `https://github.com/ada-ilhan/cicek-marketplace` (özel). Dal: `main`.
+
+## 7.1 Git taban commit'i ve GitHub deposu — COMPLETED
+- 369 dosyalık taban commit hazırlandı (Görev 6'daki 370 sayısı, `.docx` dosyasının hariç tutulmasıyla 369'a indi). Depo kimliği yalnızca bu depoya özgü: kullanıcı adı `İlhan`, e-posta GitHub noreply adresi; global ayar değişmedi.
+- `README.md` düzeltmeleri: gözlenen çıkış kodu 137, yapılandırılan 2 dakikalık `stop_grace_period`, temiz çıkış (0) **doğrulanmadı** ifadesi; CI özeti dört işi içerir.
+- Commit `28a8030` — *Initial baseline: Çiçek multi-vendor flower marketplace* (2026-11-07). `azeri çiçekçi promptları.docx` dahil edilmedi, taşınmadı, silinmedi.
+- `.git/index.lock` (0 bayt, ~64 saat eski) Git süreci olmadığı doğrulanarak kullanıcı onayıyla silindi; yalnızca o dosya.
+- Düzeltme: Görev 6'da "CRLF'li dosya yok" denmişti; sonradan 14 çalışma ağacı dosyasının CRLF olduğu görüldü. `.gitattributes` (`* text=auto eol=lf`) bunları dizinde LF'ye normalleştirir, sorun yoktur.
+
+## 7.2–7.4 İlk push ve ilk CI koşusu — COMPLETED (CI: FAILED)
+- `git push -u origin main` ile `28a8030` GitHub'a gönderildi.
+- CI koşusu [`42384939400`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/42384939400) (2026-11-07): **docker-images başarılı; frontend, backend, compose-e2e başarısız.**
+
+## 7.5–7.7 Tanılama ve başarısızlık incelemesi — COMPLETED (salt okunur)
+`gh` ile (GitHub CLI, kullanıcı yetkili) koşu 42384939400 incelendi; kök nedenler:
+| İş | Başarısız adım | Kök neden (doğrulandı) |
+|---|---|---|
+| frontend | `Generated API client is up to date` | `schema.d.ts` güncel değildi: backend sözleşmesindeki `outOfStock?: boolean` alanı üretilmiş istemcide eksikti |
+| backend | `Bootstrap Oracle test schema` | `SP2-0310: unable to open file "/tmp/wrapper.sql"`: `docker cp` ile kopyalanan dosya root sahipli, mod 600 olduğu için `oracle` kullanıcısı okuyamıyordu |
+| compose-e2e | `Start the stack and run the end-to-end suite` | Oracle-lite üzerinde uygulama tablespace'i yoktu (aşağıya bakın); bu işin ilk koşudaki ayrıntılı günlüğü bu kayıt için yeniden incelenmedi — **UNVERIFIED** |
+
+Dependabot koşuları ayrı iş akışlarıdır (`dynamic` "Dependabot Updates") ve bu kayıtta yoktur.
+
+## 7.8 İlk iki düzeltme — COMPLETED
+- `npm run generate:api` ile `frontend/packages/api-client/src/schema.d.ts` yeniden üretildi (+1 satır: `outOfStock`).
+- Bootstrap sarmalayıcı dosyası kaldırıldı; SQL*Plus betiği `docker exec -i … <<SQL` ile standart girdiden çalıştırılır (diske yazılan dosya yok).
+
+## 7.9 Oracle-lite uyumluluğu — COMPLETED
+Yerel kısıtlar: Windows ana makine ~16 GB RAM, sık sık 2 GB'ın altında boş bellek; Docker Desktop sanal makinesi. Bu yüzden `23.26.3.0-lite` imajı yerelde çalıştırılmadı (RAM yetersizdi) — tüm Oracle-lite doğrulaması GitHub çalıştırıcılarında yapıldı. Yerel RAM tanılaması (RAMMap, süreç grupları) yapıldı; hiçbir süreç sonlandırılmadı, bellek temizliği yapılmadı. Tarihleri — **UNVERIFIED**.
+
+CI koşuları (push olayı) ve sonuçları:
+| Commit | Koşu | Sonuç | Neden / değişiklik |
+|---|---|---|---|
+| `38651a5` fix(ci): repair bootstrap and Oracle tablespace compatibility | [`43610817971`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/43610817971) | FAILED | frontend `npm test`: varsayılan dil `tr` bulundu, `az` bekleniyordu (CI ortam değişkeni eksikti); backend: `ORA-20901 bootstrap.no_data_tablespace`: lite imajında `USERS` yok ve tek kalıcı tablespace `SYSTEM` (kullanıcılar için reddedildi). Bu commit: `schema.d.ts`, stdin tabanlı bootstrap ve `create_schema_users_impl.sql` içinde dinamik tablespace çözümü |
+| `a0de574` ci: diagnose Oracle-lite and fix frontend locale | [`43613108415`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/43613108415) | FAILED | frontend düzeldi (`NEXT_PUBLIC_DEFAULT_LOCALE: az`); backend aynı ORA-20901; geçici salt-okunur Oracle tanılama adımı eklendi; `compose-e2e` bilerek atlandı (`if: ${{ false }}`) |
+| `ce5e5ff` ci: provision application tablespace for Oracle-lite | [`43615718988`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/43615718988) | FAILED | tanılamanın gösterdiği: PDB `FREEPDB1`'de `USERS` yok, OMF yok; yeni `db/bootstrap/create_data_tablespace.sql` (seçmeli, tekrar çalıştırılabilir, `SYSAUX` dizininden dosya yolunu türetir, `DBMS_ASSERT` kullanır) ve `deploy/oracle/setup/01_create_cicek_users.sh` entegrasyonu. Bootstrap geçti; testler başarısız: dört güvenlik testi `ORA-01031` bekliyordu (Oracle 26ai `ORA-41900` döndürüyor) ve bir bağlantı testi (aşağıda) |
+| `ccffb17` test: support Oracle 26ai privilege errors and diagnose connection failures | [`43618097168`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/43618097168) | FAILED (282/283) | dört append-only testi `ORA-01031` **veya** `ORA-41900` (yetki ve tablo adı mesajda) kabul eder; satırlar ve yetki politikası korundu. Kalan başarısız: `OracleDeploymentTests.Unreachable_database_is_classified_as_unavailable_without_details` |
+| `28ea9f0` fix(db): classify ORA-50201 wrapping ORA-50232 as unavailable | [`43650136916`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/43650136916) | **SUCCESS** (compose-e2e atlandı) | Backend 299/299; OpenAPI adımı ilk kez çalıştı ve geçti |
+| `364f5c5` ci: re-enable compose end-to-end verification | [`43650765165`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/43650765165) | **SUCCESS** (4/4 iş) | `compose-e2e` yeniden açıldı; Playwright 16/16 |
+| `bfa5ff1` ci: remove temporary Oracle-lite tablespace diagnostic | [`45322310769`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/45322310769) | **SUCCESS** (4/4 iş) | Geçici tanılama adımı kaldırıldı (0 ekleme / 44 silme) |
+
+### Bağlantı hatası sınıflandırması (kök neden — doğrulandı)
+Yönetilen ODP.NET sürücüsü Linux'ta ulaşılamayan veritabanını `OracleException ORA-50201` ("Oracle Communication") olarak bildirir; iç zincirin en altı `ORA-50232` ("TCP transport address connect failure", 127.0.0.1:1599). `OracleDatabaseErrorClassifier` 50201'i bilmediği için sonuç `Unknown` (HTTP 500) oluyordu; beklenen `Unavailable` (503). Düzeltme: **dış kod 50201 ve iç zincirde mesajı `ORA-50232:` ile başlayan bir özel durum** varsa `Unavailable`; 50201 tek başına ya da başka iç nedenle `Unknown` kalır (parametre ayrıştırma hatası vb. kesin kesintiye çevrilmez). Yalnızca iç mesajın başındaki hata numarası okunur, metin değil. Eklenen: `ClassifyOracleError` (saf, test edilebilir uç), 16 yeni birim testi (`OracleErrorClassifierTests`: 7 → 23), `docs/oracle-database.md` içinde tablo satırı ve açıklama. Windows'ta aynı testin neden yerelde geçtiği kanıtlanmadı — **UNVERIFIED**.
+
+### Kalıcı sonuçlar
+- Yeni dosya: `db/bootstrap/create_data_tablespace.sql`; `create_schema_users_impl.sql` artık yalnızca gerektiğinde ve uygun bir kalıcı tablespace bulunursa kullanıcı oluşturur (yoksa `ORA-20901`); `SYSTEM`/`SYSAUX` kullanıcı verisi için reddedilir.
+- `ci.yml`: `compose-e2e` etkin, geçici tanılama adımı yok, tüm eylemler SHA'ya sabit.
+- `docs/oracle-database.md`: ORA-50201/ORA-50232 satırı.
+- Güvenlik testi iddiası (`UPDATE`/`DELETE` yasak) zayıflatılmadı: yalnızca 26ai'nin farklı hata numarası ve ileti biçimi kabul edildi.
+
+## Doğrulanmış taban çizgisi (2026-11-24)
+- Dal `main`, commit `bfa5ff1af3e5f8979756cc965392cfde0f4972dc`, koşu [`45322310769`](https://github.com/ada-ilhan/cicek-marketplace/actions/runs/45322310769): `backend` 202 sn, `frontend` 99 sn, `docker-images` 92 sn, `compose-e2e` 506 sn — **hepsi başarılı, hiçbiri atlanmadı**.
+- Backend: **299 geçti, 0 başarısız, 0 atlanan** (283 + 16 sınıflandırıcı testi); `Format` ve uyarılar hata olarak derleme geçti; savunmasız NuGet paketi yok.
+- OpenAPI sapma denetimi geçti; frontend üretilmiş istemci denetimi geçti.
+- Frontend: üç test paketinde **91 geçen test** gözlendi (69 + 10 + 12; başka paket olmadığı ayrıca doğrulanmadı); storefront duman testi **4 geçti**.
+- Compose E2E: Oracle, API, storefront sağlıklı (`Stack ready after 2.9s (0 failed probes)`); Playwright **16 geçti**; günlükte yeniden deneme, kararsız (`flaky`) ya da atlanan test yok. Migrator ve yönetici hesabı adımları için ayrı satır kanıtı yok; adımın başarısı ve API sağlığı hata olmadığını gösterir.
+- Oracle-lite uygulama tablespace'i (`USERS`) CI'da `create_data_tablespace.sql` ile oluşturulur.
+- Doğrulanmayanlar: tam Oracle Free imajı (CI lite kullanır), üretim ortamı, yük/performans.
+
+## Aşama 7.9 kapanışı
+**Başarılanlar:** GitHub deposu ve taban commit'i; ilk CI'daki üç kök neden çözüldü (istemci sapması, bootstrap sarmalayıcı, Oracle-lite tablespace); Oracle 26ai yetki hatası uyumluluğu; bağlantı hatası sınıflandırması; CI'ın dört işi ilk kez birlikte yeşil.
+**Doğrulanan:** yukarıdaki taban çizgisi — iki ardışık tam yeşil koşu (`43650765165`, `45322310769`).
+**Doğrulanmayan:** üretim sertleştirmesi, tam Oracle imajı, uzun vadeli CI kararlılığı (yalnızca iki yeşil koşu), Playwright'ın CI'da `retries: 1` ile çalışması (bu koşularda yeniden deneme olmadı ama ayar duruyor), Azerbaycanca metinlerin anadil incelemesi.
+**Neden devam edilebilir:** otomatik doğrulama zinciri (derleme, format, 299 backend testi, OpenAPI, istemci, imajlar, uçtan uca) artık güvenilir biçimde çalışıyor ve değişiklikleri yakalıyor; bilinen başarısızlık nedenleri kayıtlı.
+**Neden CI yeşili üretime hazır demek değildir:** CI geçici sırlarla, tek Oracle-lite konteynerinde, tek makinede çalışır; barındırma, HTTPS/alan adı, sır yönetimi, yedekleme/geri yükleme, izleme, kalıcılık ve görsel depolama stratejisi hiç sınanmadı.
+
+## Açık işler (hiçbiri yapılmadı)
+1. **Dependabot:** şu an **18 açık PR** (önceki kayıtlardaki 14 güncelliğini yitirdi; GitHub'dan doğrulandı), çoğu majör sürüm (ör. .NET 11 imajları, Node 26, TypeScript 7, `vite` 8, Oracle sağlayıcıları, `actions/*`). Hiçbiri birleştirilmedi; her biri ayrı değerlendirilmeli (CI bunları ayrı koşturur).
+2. **Playwright CI yeniden deneme politikası** (`retries: process.env.CI ? 1 : 0`) ayrıca değerlendirilecek.
+3. **`.gitignore`:** `.docx` dışlama satırı hâlâ commit edilmedi (çalışma ağacında değişmiş duruyor).
+4. Anadil Azerbaycanca dil incelemesi; lisans incelemesi.
+5. Üretim barındırma ve dağıtım mimarisi; üretim sır yönetimi; HTTPS, alan adı, ters vekil; veritabanı ve medya kalıcılığı; yedek ve geri yükleme doğrulaması; izleme, günlükleme, operasyonel hazırlık; üretim görsel depolama stratejisi.
+6. Gerekirse tam Oracle Free imajıyla uyumluluk doğrulaması.
+7. Yerel Windows bellek kısıtları (Docker/Oracle yerelde ancak yeterli RAM varken).
+8. Ödeme ve kurye entegrasyonu ertelenmiştir.
+
+## Önerilen sonraki aşama: Aşama 8 – Üretim hazırlığı ve dağıtım hazırlığı
+Ayrıntılı alt aşamalar ve mimari kararlar (barındırma, sır yönetimi, depolama vb.) ayrı bir değerlendirmede belirlenecek; bu kayıtta tasarlanmadı.

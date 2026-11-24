@@ -17,7 +17,9 @@ internal sealed partial class OracleDatabaseErrorClassifier : IDatabaseErrorClas
     private const int ChildRecordFound = 2292;                 // ORA-02292
     private const int Deadlock = 60;                           // ORA-00060
     private const int CannotSerialize = 8177;                  // ORA-08177
-    private const int ApplicationErrorMin = 20000;             // ORA-20000 … ORA-20999 (RAISE_APPLICATION_ERROR)
+    private const int CommunicationFailure = 50201;            // ODP.NET managed: generic "Oracle Communication" wrapper
+    private const int TcpTransportConnectFailure = 50232;      // ODP.NET managed: TCP transport address connect failure
+    private const int ApplicationErrorMin = 20000;            // ORA-20000 … ORA-20999 (RAISE_APPLICATION_ERROR)
     private const int ApplicationErrorMax = 20999;
 
     /// <summary>Connectivity, availability, timeout and connect-time authentication errors.</summary>
@@ -65,18 +67,53 @@ internal sealed partial class OracleDatabaseErrorClassifier : IDatabaseErrorClas
             return null;
         }
 
-        var code = oracle.Number;
+        return ClassifyOracleError(oracle.Number, oracle.Message, oracle.InnerException);
+    }
+
+    /// <summary>Classification by Oracle error number; <paramref name="cause"/> is the provider exception's inner chain.</summary>
+    internal static DatabaseFailure ClassifyOracleError(int code, string message, Exception? cause)
+    {
         return code switch
         {
             UniqueConstraintViolated => new DatabaseFailure(DatabaseFailureKind.UniqueViolation, code),
             ParentKeyNotFound or ChildRecordFound => new DatabaseFailure(DatabaseFailureKind.ReferenceViolation, code),
             Deadlock or CannotSerialize => new DatabaseFailure(DatabaseFailureKind.TransientContention, code),
             >= ApplicationErrorMin and <= ApplicationErrorMax =>
-                new DatabaseFailure(DatabaseFailureKind.ApplicationRule, code, ExtractApplicationCode(oracle.Message)),
+                new DatabaseFailure(DatabaseFailureKind.ApplicationRule, code, ExtractApplicationCode(message)),
             _ when UnavailableCodes.Contains(code) => new DatabaseFailure(DatabaseFailureKind.Unavailable, code),
+            // ORA-50201 is a generic wrapper (also raised for connect-string and other client-side problems);
+            // it means "unavailable" only when the driver reports a TCP transport connect failure as its cause.
+            CommunicationFailure when HasTcpTransportConnectFailure(cause) => new DatabaseFailure(DatabaseFailureKind.Unavailable, code),
             _ => new DatabaseFailure(DatabaseFailureKind.Unknown, code),
         };
     }
+
+    /// <summary>
+    /// True when an inner exception's message starts with the ORA-50232 error number (managed driver: "TCP transport address
+    /// connect failure"). Only the leading error number is read, not the descriptive text. The driver's internal exception
+    /// types are not referenced because they are not public API.
+    /// </summary>
+    internal static bool HasTcpTransportConnectFailure(Exception? cause)
+    {
+        for (var current = cause; current is not null; current = current.InnerException)
+        {
+            if (LeadingOraNumber(current.Message) == TcpTransportConnectFailure)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int? LeadingOraNumber(string? message)
+    {
+        var match = message is null ? null : LeadingOraPattern().Match(message);
+        return match is { Success: true } ? int.Parse(match.Groups["n"].ValueSpan, System.Globalization.CultureInfo.InvariantCulture) : null;
+    }
+
+    [GeneratedRegex(@"^\s*ORA-(?<n>\d{5}):", RegexOptions.CultureInvariant)]
+    private static partial Regex LeadingOraPattern();
 
     /// <summary>Formats an Oracle error number for operator-facing output, e.g. "ORA-12541".</summary>
     public static string FormatCode(int code) => $"ORA-{code:D5}";

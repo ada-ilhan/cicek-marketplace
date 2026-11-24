@@ -116,7 +116,10 @@ Package rules (ADR-0010): one responsibility per package; explicit parameters; c
 | ORA-02291 / 02292 | ReferenceViolation | 409 `conflict.reference` |
 | ORA-00060 / 08177 | TransientContention | 503 `service.busy` |
 | ORA-03113/03114/03135, ORA-12xxx TNS, ORA-01017, ORA-28000, ORA-50000 (pool timeout), ORA-01013 | Unavailable | 503 `service.unavailable` |
+| ORA-50201 wrapping an inner ORA-50232 | Unavailable | 503 `service.unavailable` |
 | ORA-20000…20999 with contract code | ApplicationRule | 422 with the contract code |
+
+**ORA-50201 / ORA-50232 (managed ODP.NET driver).** ORA-50201 ("Oracle Communication") is a general wrapper that the driver raises for several client-side problems, including an unparsable connect string. It is therefore *not* classified as Unavailable on its own and stays Unknown (500 `server.error`). ORA-50232 ("Network Transport: TCP transport address connect failure") identifies a failed TCP connection to the database host. When an ORA-50201 exception has an inner exception whose message starts with the ORA-50232 number, the failure is Unavailable. This chain was observed with the Linux build of the driver against an unreachable host/port (GitHub Actions, Linux runner); other driver versions or platforms may report a different chain, in which case the failure stays Unknown until its codes are verified and added. Only the leading error number of the inner message is read, never the descriptive text.
 | EF concurrency exception | ConcurrencyConflict | 409 `conflict.concurrent_update` |
 | anything else | Unknown | 500 `server.error` |
 

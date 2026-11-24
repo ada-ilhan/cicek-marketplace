@@ -30,6 +30,61 @@ public sealed class OracleErrorClassifierTests
         Assert.Null(new OracleDatabaseErrorClassifier().Classify(new InvalidOperationException("x")));
     }
 
+    private const string WrapperMessage = "ORA-50201: Oracle Communication: Failed to connect to server or failed to parse connect string";
+
+    [Fact]
+    public void Communication_wrapper_with_a_TCP_transport_cause_is_unavailable()
+    {
+        var cause = new InvalidOperationException(WrapperMessage,
+            new InvalidOperationException("ORA-50232: Network Transport: TCP transport address connect failure for host 127.0.0.1 port 1599."));
+
+        var failure = OracleDatabaseErrorClassifier.ClassifyOracleError(50201, WrapperMessage, cause);
+
+        Assert.Equal(DatabaseFailureKind.Unavailable, failure.Kind);
+        Assert.Equal(50201, failure.ProviderCode);
+    }
+
+    [Fact]
+    public void Communication_wrapper_alone_is_not_unavailable()
+    {
+        Assert.Equal(DatabaseFailureKind.Unknown, OracleDatabaseErrorClassifier.ClassifyOracleError(50201, WrapperMessage, null).Kind);
+    }
+
+    [Theory]
+    [InlineData("ORA-50201: Oracle Communication: Failed to connect to server or failed to parse connect string")]
+    [InlineData("ORA-50203: some other communication error")]
+    [InlineData("TNS-12345 unrelated")]
+    [InlineData("connect string mentions ORA-50232: but does not start with it")]
+    [InlineData("ORA-502321: not the same number")]
+    public void Communication_wrapper_with_an_unrelated_cause_stays_unknown(string innerMessage)
+    {
+        var cause = new InvalidOperationException(innerMessage);
+
+        Assert.Equal(DatabaseFailureKind.Unknown, OracleDatabaseErrorClassifier.ClassifyOracleError(50201, WrapperMessage, cause).Kind);
+    }
+
+    [Fact]
+    public void A_TCP_transport_cause_does_not_reclassify_other_error_numbers()
+    {
+        var cause = new InvalidOperationException("ORA-50232: Network Transport: TCP transport address connect failure");
+
+        Assert.Equal(DatabaseFailureKind.Unknown, OracleDatabaseErrorClassifier.ClassifyOracleError(942, "ORA-00942: table or view does not exist", cause).Kind);
+    }
+
+    [Theory]
+    [InlineData(1017, DatabaseFailureKind.Unavailable)]
+    [InlineData(28000, DatabaseFailureKind.Unavailable)]
+    [InlineData(12541, DatabaseFailureKind.Unavailable)]
+    [InlineData(12170, DatabaseFailureKind.Unavailable)]
+    [InlineData(50000, DatabaseFailureKind.Unavailable)]
+    [InlineData(1, DatabaseFailureKind.UniqueViolation)]
+    [InlineData(60, DatabaseFailureKind.TransientContention)]
+    [InlineData(942, DatabaseFailureKind.Unknown)]
+    public void Existing_classifications_are_unchanged(int code, DatabaseFailureKind expected)
+    {
+        Assert.Equal(expected, OracleDatabaseErrorClassifier.ClassifyOracleError(code, $"ORA-{code:D5}: x", null).Kind);
+    }
+
     [Fact]
     public void Error_codes_are_formatted_with_five_digits()
     {
