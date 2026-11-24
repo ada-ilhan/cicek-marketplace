@@ -7,6 +7,8 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
+  // A retry keeps the diagnostics (trace of the failed attempt) but a test that needed one must still fail the CI gate.
+  failOnFlakyTests: !!process.env.CI,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL,
