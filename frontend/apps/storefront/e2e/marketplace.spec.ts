@@ -37,6 +37,9 @@ function tomorrow() {
 }
 
 test("complete marketplace journey: seller, administrator and customer panels", async ({ browser }) => {
+  // One long multi-actor journey (about 170 steps, four browser contexts). Every step is fast, but the sum is close to the
+  // 30 s default: on a slower runner it ran out of budget at the last steps (CI run 45464006518), without any hung step.
+  test.setTimeout(120_000);
   const marker = Date.now().toString(36);
   const shopName = `E2E Florist ${marker}`;
   const productName = `E2E Roses ${marker}`;
