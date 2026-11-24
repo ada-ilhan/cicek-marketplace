@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
-    "@playwright/test": "1.64.0",
+    "@playwright/test": "1.65.1",
     "@tailwindcss/postcss": "4.3.3",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "4.3.3"
