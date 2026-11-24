@@ -274,3 +274,63 @@ Yönetilen ODP.NET sürücüsü Linux'ta ulaşılamayan veritabanını `OracleEx
 
 ## Önerilen sonraki aşama: Aşama 8 – Üretim hazırlığı ve dağıtım hazırlığı
 Ayrıntılı alt aşamalar ve mimari kararlar (barındırma, sır yönetimi, depolama vb.) ayrı bir değerlendirmede belirlenecek; bu kayıtta tasarlanmadı.
+
+
+
+---
+
+# Aşama 7.9 devamı – Bağımlılık modernizasyonu, güvenlik düzeltmeleri ve kararsız test (2026-11-24)
+
+Bu bölüm yukarıdaki "Aşama 7.1–7.9" kaydının devamıdır; önceki içerik değiştirilmemiştir. Yalnızca GitHub kayıtlarıyla doğrulanan bilgiler vardır; doğrulanamayanlar **UNVERIFIED** ile işaretlidir. Koşu bağlantıları: `https://github.com/ada-ilhan/cicek-marketplace/actions/runs/<ID>`.
+
+## R.2–R.3 Birleştirilen bağımlılık güncellemeleri
+Her birleşme squash ile ve `--match-head-commit` korumasıyla yapıldı; her PR için CI'ın test ettiği birleşim (main + PR başı) doğrulandı; her birleşmeden sonra main CI'ı tam yeşil çıktı (backend 299/299, frontend 69+10+12, duman 4/4, Playwright 16/16).
+
+| PR | Değişiklik | Main commit | PR koşusu | Main koşusu |
+|---|---|---|---|---|
+| #19 | JwtBearer 10.0.14 → 10.0.15 | `c99d3ef` | 45332792467 | 45334280146 |
+| #21 | `next` 16.4.4 → 16.4.5 (güvenlik) | `81f068a` | 45334278825 | 45431985221 |
+| #13 | `eslint-config-next` → 16.4.6 | `ca05219` | 45434172258 | 45435994420 |
+| #22 | `typescript-eslint` 8.74.0 / `minimatch` 11.0.9 (güvenlik) | `7089543` | 45438062783 | 45439683764 |
+| #5 | `Microsoft.Extensions.TimeProvider.Testing` 10.11.0 | `1b66f57` | 45445974823 (bkz. kararsız test) | 45449041502 |
+| #23 | Swashbuckle SwaggerUI 10.3.0 → 10.3.1 (elle, Dependabot #12 kapanmıştı) | `4285e1a` | 45450584794 | 45452068918 |
+| #24 | 17 Microsoft paketi 10.0.14 → 10.0.15 | `f26056e` | 45453850875 | 45455410643 |
+| #25 | `Oracle.EntityFrameworkCore` 10.23.26301 → 10.23.26400; `Oracle.ManagedDataAccess.Core` 23.26.301 → 23.26.401 | `33ee194` | 45472564067 | 45474045041 |
+| #14 | `@playwright/test` 1.64.0 → 1.65.1 | `31eaa33` | 45475689990 | 45477143472 |
+| #10 | `@axe-core/playwright` 4.13.0 → 4.14.0 | `8635737` | 45477591356 | 45482657582 |
+
+- #20 (storefront `package.json`) #21 tarafından kapsandığı için Dependabot tarafından kendiliğinden kapandı; #12, #6, #9 Dependabot tarafından kapatıldı (#12 yerine #23, #6/#9 yerine #25).
+- #24 kapsamı: EntityFrameworkCore (+Relational, +Design), System.Security.Cryptography.Pkcs, Extensions.Options (+ConfigurationExtensions, +DataAnnotations), Logging.Abstractions, Hosting (+Abstractions), Diagnostics.HealthChecks, Configuration.UserSecrets, Configuration.EnvironmentVariables, AspNetCore.Identity.EntityFrameworkCore, AspNetCore.OpenApi, Extensions.ApiDescription.Server, AspNetCore.Mvc.Testing. Hepsi resmî .NET 10.0.15 sürümünün (2026-11-10, güvenlik düzeltmeleri içerir) paket listesinde. `AspNetCore.OpenApi` 10.0.15, `Microsoft.OpenApi` alt sınırını 2.12.2'den 2.13.0'a çıkarır; OpenAPI sapma denetimi geçti.
+- Dependabot'un rebase komutu birkaç kez yanıtsız kaldı (#5, #10). #5 için GitHub'ın zorlamasız "Update branch" işlemi kullanıldı.
+
+## Güvenlik düzeltmesi
+- Başlangıç: 15 açık Dependabot uyarısı, 8 farklı advisory (7 Next.js, 1 minimatch; hepsi orta). Sonuç: **15 fixed, 0 açık, 0 dismissed** (hiçbiri elle kapatılmadı). `npm audit` (üretim ve tümü) 0, NuGet savunmasız paket 0.
+- Uygulama maruziyeti (kod incelemesi): Edge runtime yok → `GHSA-f3mh` uygulanmaz; `use cache`/Cache Components/`unstable_cache` kullanılmıyor → dört önbellek advisory'si uygulanmaz; `next/image` kullanılmıyor ama `/_next/image` uç noktası self-hosted varsayılanında açık → `GHSA-7qx7` **belirsiz**; BFF ve `media` route'ları yanıtı yeniden oluşturuyor → `GHSA-pc58` büyük olasılıkla uygulanmaz (kesin kanıt yok).
+- Sıfır bilinen uyarı, uygulamanın güvenli olduğunu kanıtlamaz.
+
+## Kararsız (flaky) testler ve CI politikası
+1. **`stage5.spec.ts:296` (florist görsel yükleme)** — PR #5 koşusu 45445974823, 1. deneme: `getByText("Image 2")` `toHaveCount(0)` beklerken 5 sn boyunca 1 eleman buldu; retry geçti. Trace yüklenmemişti (iş başarılı olduğu için). **Kök neden (kod + hata imzasından, yüksek güven; eleman kimliği trace ile kanıtlanmadı):** `ImageManager` her görsel için ekran-okuyucu etiketi "Image description (optional) — Image N" üretir; yükleme bitince `getByText("Image 2")` (alt dize eşleşmesi) bu etiketi bulur. Eski olumsuz doğrulama yalnızca yükleme bitmeden önce değerlendirilirse geçebiliyordu (yarış). Düzeltme (PR #26, `226a18c`): önce bitmiş durum beklenir (`getByRole("img", {name: "Image 2"})`), sonra tam metin eşleşmesi (`exact: true`) ile "alt metin görünür metin değildir" doğrulanır; hiçbir doğrulama kaldırılmadı.
+2. **CI kapısı:** `playwright.config.ts` içine `failOnFlakyTests: !!process.env.CI` eklendi (Playwright 1.64+ destekler). Retry ve hata izleri korunur, ancak yalnızca retry ile geçen test artık işi başarısız kılar.
+3. **`marketplace.spec.ts:39` (uçtan uca yolculuk)** — #26 sonrası main koşusu 45464006518 yeni kapı nedeniyle **başarısız** oldu: 1. denemede 30 sn test zaman aşımı, retry geçti. İndirilen trace: 167 adım, hiçbiri takılmadı (en yavaş ~1,1 sn), test son adımlarda bütçeyi aştı; koşunun toplam E2E süresi 3,7 dk (diğer koşularda 2,6–3,3 dk) → yavaş çalıştırıcı **hipotezi** (adım başına ölçülmedi). Düzeltme (PR #27, `7edfd7f`): yalnızca bu teste `test.setTimeout(120_000)` (aynı dosyadaki diğer uzun yolculuklar zaten 120/240/300 sn kullanıyor); genel zaman aşımı, doğrulamalar ve kapsam değişmedi.
+4. **Tekrarlı doğrulama (GitHub CI, birbirinden bağımsız tam koşular, retry yok):** #26 dalı: 45459260327 (PR), 45460875007, 45462377214 (workflow_dispatch) — hepsi temiz; #27 dalı: 45465922131 (PR), 45467369263, 45468698937 — hepsi temiz; ardından main 45470316011 ve sonraki tüm koşular temiz. Birinci hata (#26 sonrası main 45464006518) kayıtlıdır ve silinmemiştir. Üç yeşil koşu kalıcı kararlılığı kanıtlamaz.
+5. Gözlem: stage5 satır 257/264/293 ve marketplace satır 186'daki `toHaveCount(0)` doğrulamaları da olumsuz doğrulamalardır; bunlar erken geçebilir (kararsızlık değil, zayıf doğrulama riski). Bu oturumda değiştirilmedi.
+
+## Oracle sağlayıcı uyumluluğu (PR #25)
+- Önce `OracleDatabaseErrorClassifier` kuralı korunur: yalnızca dış ORA-50201 + iç ORA-50232 → `Unavailable`; 50201 tek başına `Unknown`. Kural bu oturumda değişmedi.
+- NuGet meta verisi: `Oracle.EntityFrameworkCore` 10.23.26400 → net10.0, `Microsoft.EntityFrameworkCore.Relational [10.0.0, 11.0.0)` (10.0.15 bu aralıkta), `Oracle.ManagedDataAccess.Core [23.26.400, 24.0.0)`. ODP.NET 23.26.401 → net6/net8/netstandard2.1; `System.Security.Cryptography.Pkcs` ve `System.Formats.Asn1` 10.0.13 (eski 6.x/8.x yerine), `System.Text.Json` 10.0.9. Depodaki `Pkcs` 10.0.15 sabitlemesi bununla uyumlu.
+- Oracle'ın resmî notları sınırlı: EF Core 10 desteği 10.23.2600+'da başladı; 10.23.26400 notu "bağımlılık 23.26.400+ ve SaveChanges hızlandırması". 23.26.401 için ayrı resmî sürüm notu **bulunamadı (UNVERIFIED)**. Yerel kontrol olarak yalnızca NuGet'te var olduğu doğrulandı.
+- **EF Core 11:** NuGet'te `Oracle.EntityFrameworkCore` 11.x sürümü **yoktur** (en yenisi 10.23.26400); .NET 11 / EF Core 11 geçişi için engel.
+- CI kanıtı (Oracle Free **lite** 23.26.3.0): Oracle bootstrap, şema güvenliği (append-only; ORA-01031 veya ORA-41900), sınıflandırıcı ve `Unreachable_database_is_classified_as_unavailable_without_details` dâhil backend 299/299, atlanan 0. Gerçek özel durum zinciri bu koşuda ayrıca kaydedilmedi (test geçti → `Unavailable`; zincirin kendisi **UNVERIFIED**).
+
+## Playwright ve Axe
+- Playwright 1.65.1 (Chromium 159 paketli; CI `playwright install` ile sürüm eşleşir; Docker/CI'da Playwright imajı yok). Sürüm notu riskleri: `inert` bekleme, RFC 6265 çerez eşleşmesi, `test.slow()/skip()` imzası; suite etkilenmedi (16/16, retry yok).
+- `@axe-core/playwright` 4.14.0 (axe-core 4.14, Node `>=22.12.0` ister); erişilebilirlik testi ve doğrulamaları değişmedi, geçti. Not: depo `engines` alanı hâlâ `>=22.11.0`; CI ve `node:22-alpine` bunu karşılar.
+- Lockfile gözlemi: #14 sonrası storefront paket kaydında `^1.65.1` ile `package.json` `1.65.1` arasında önemsiz fark vardı; #10 bunu normalleştirdi.
+
+## Kalan bağımlılık işleri
+- Açık PR'lar: #1–#4 (GitHub Actions majörleri), #8 (TypeScript 7), #11 (vite 8), #15/#17/#18 (.NET 11 imajları), #16 (Node 26).
+- Önkoşullar: TypeScript 7 için `typescript-eslint` 8.74.0 peer'ı `typescript <6.1.0` (uyumlu sürüm çıkana kadar bloklu); vite 8 için `@vitejs/plugin-react` 4.7.0 → 6.x (peer `vite ^8`) ve Node `^20.19 || >=22.12`; .NET 11 için Oracle EF Core 11 sağlayıcısı + Swashbuckle 11; Node 26 için `.nvmrc`, `engines` ve CI hizası.
+- Yapılmadı: Aşama 8 (üretim hazırlığı), GitHub Actions modernizasyonu (R.6).
+
+## Doğrulanmayanlar ve sınırlar
+- Tüm Oracle doğrulaması Oracle **lite** konteynerinde, geçici sırlarla, tek GitHub çalıştırıcısında yapıldı; tam Oracle Free, üretim veritabanı, yük, yedekleme/geri yükleme, HTTPS/alan adı ve sır yönetimi sınanmadı. Yeşil CI üretime hazır olmak demek değildir.
