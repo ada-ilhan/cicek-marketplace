@@ -310,8 +310,12 @@ test("a florist uploads an image in the product form; invalid files are refused 
   await seller
     .getByTestId("image-file-input")
     .setInputFiles({ name: "second.png", mimeType: "image/png", buffer: PNG });
-  await expect(seller.getByText("Image 2")).toHaveCount(0); // alt text is the preview's accessible name, not visible text
+  // The preview exists once the upload finished; its accessible name is the alt text. Wait for that before asserting
+  // anything about the finished state (a negative check made earlier can pass before the upload even completes).
   await expect(seller.getByRole("img", { name: "Image 2" })).toBeVisible();
+  // The alt text is the preview's accessible name, never visible text. The screen-reader-only label
+  // "Image description (optional) — Image 2" legitimately contains the words, so only a whole-text match counts.
+  await expect(seller.getByText("Image 2", { exact: true })).toHaveCount(0);
   await seller.getByRole("button", { name: "Move earlier" }).last().click();
   await seller.getByRole("button", { name: "Save" }).click();
   await expect(seller.getByText("Saved.")).toBeVisible();
