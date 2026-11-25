@@ -25,7 +25,7 @@ docs/       Architecture, Oracle guide, ADRs
 | Tool | Version |
 |---|---|
 | .NET SDK | 10.0.300+ (pinned in `backend/global.json`) |
-| Node.js | 22.11+ (22.13+ / 24 LTS recommended, see ADR-0011) |
+| Node.js | 26 LTS (`frontend/.nvmrc`; CI and the storefront image use Node 26; Node 22 is no longer validated) |
 | Oracle Database | 19c or later, with a PDB you can create users in; **or** Docker for Oracle Database Free |
 | SQL*Plus or SQLcl | for the one-time bootstrap |
 | Docker + Compose | optional, for the containerized stack |

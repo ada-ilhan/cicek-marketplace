@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=22.11.0"
+    "node": ">=26.0.0 <27"
   },
   "scripts": {
     "generate:api": "npm run generate --workspace @cicek/api-client",
