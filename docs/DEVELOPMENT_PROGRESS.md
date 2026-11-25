@@ -334,3 +334,40 @@ Her birleşme squash ile ve `--match-head-commit` korumasıyla yapıldı; her PR
 
 ## Doğrulanmayanlar ve sınırlar
 - Tüm Oracle doğrulaması Oracle **lite** konteynerinde, geçici sırlarla, tek GitHub çalıştırıcısında yapıldı; tam Oracle Free, üretim veritabanı, yük, yedekleme/geri yükleme, HTTPS/alan adı ve sır yönetimi sınanmadı. Yeşil CI üretime hazır olmak demek değildir.
+
+
+---
+
+# Aşama 7.9 devamı – R.6 Actions, Next 16.4.6, Node 26, Vite 8, SwaggerUI 11 (2026-11-25)
+
+Önceki bölümler değiştirilmemiştir. Koşu bağlantıları: `https://github.com/ada-ilhan/cicek-marketplace/actions/runs/<ID>`. Doğrulanamayanlar **UNVERIFIED** ile işaretlidir.
+
+## Birleştirilen değişiklikler
+
+| PR | Değişiklik | Main commit | PR koşusu | Main koşusu |
+|---|---|---|---|---|
+| (doğrudan) | Docs R.2–R.5 + `.gitignore` | `f8c2c23`, `595bbdd` | n/a | 45502860889 |
+| #28 | `next` 16.4.5 → 16.4.6 (yalnızca hata düzeltmesi) | `2500dc4` | 45612785591 | 45613959337 |
+| #1 | `actions/checkout` v4.4.0 → v7.0.1 (`3d3c42e5…`) | `0102d78` | 45614202368 | 45615569341 |
+| #2 | `actions/setup-dotnet` v4.3.1 → v6.1.0 (`0f4a354d…`) | `25ef7c5` | 45615746741 | 45617111510 |
+| #3 | `actions/upload-artifact` v4.6.2 → v7.0.2 (`cf430e03…`) | `a8c6ce4` | 45617293260 | 45618594445 |
+| #4 | `actions/setup-node` v4.4.0 → v7.1.0 (`949feb24…`) | `3bc615a` | 45620576332 | 45622023394 |
+| #29 | Node.js 22 → **26 LTS** (Dockerfile, `.nvmrc`, `engines >=26.0.0 <27`, lockfile meta, README) | `bf88038` | 45624516950 | 45625833433 |
+| #30 | `vite` 6.4.5 → 8.3.5 ve `@vitejs/plugin-react` 4.7.0 → 6.3.0 | `8bbbf08` | 45627385416 | 45629203784 |
+| #31 | `Swashbuckle.AspNetCore.SwaggerUI` 10.3.1 → 11.0.1 | `06169b6` | 45631395355 | 45632874008 |
+
+Her SHA, resmî `actions/*` deposundaki ilgili etiketin gösterdiği commit ile eşleştirildi; etiket yerine SHA sabitlemesi korundu. Her birleşme squash ve `--match-head-commit` korumalıdır. Her koşuda backend 299/299, frontend 69+10+12, duman 4/4, Playwright 16/16, flaky/retry 0, `npm audit` 0, NuGet savunmasız paket 0. Dependabot uyarıları: 0 açık.
+
+## Notlar ve sınırlar
+- Actions'ın kendi iç çalışma ortamı (hepsi `node24`) ile uygulamanın Node'u ayrıdır. Node 26 geçişinde CI `node v26.13.1` (setup-node, `.nvmrc` üzerinden) ve Docker `node:26-alpine` kullandı; Playwright E2E bu imaja karşı geçti. Node 26 için resmî bir "Next/Playwright/axe desteklenir" beyanı bulunmadı; uyumluluk yalnızca CI koşusuyla gösterildi (Next `engines >=20.9`, Playwright `>=20`, axe `>=22.12`). Node 26'da npm yeni bir "install-scripts" uyarısı veriyor (`esbuild`/`unrs-resolver` postinstall); bu bir hata değil ama ileride `allowScripts` düzenlemesi gerekebilir (UNVERIFIED).
+- `engines` `>=26.0.0 <27` olarak daraltıldı (yalnızca Node 26 doğrulandı). Çalışan depolama (storefront) konteynerinin içinde `node --version` ayrıca gözlenmedi: CI'da yalnızca `node:26-alpine@sha256:6bd9ab43…` imajının çekildiği ve E2E'nin ona karşı geçtiği görüldü (iki aşama aynı etiketi kullanır). Bu oturumda yerel makine sahibi tarafından Node v26.13.1 / npm 11.20.0'a yükseltildi (önceden Node 22.11.0 / npm 10.9.0; bu ikisi artık geçerli değil); ben yerel yazılım kurmadım.
+- Vite yalnızca Vitest motoru ve test JSX dönüşümü için kullanılır (Next üretim derleyicisi değildir). Vitest 4.1.12 değişmedi (peer `vite ^6 || ^7 || ^8`). Vite 8.3.8 yayında; PR #11 Dependabot tarafından 8.3.5 → 8.3.8 yamasına dönüştü, birleştirilmedi. Resmî Vite 6→7 ve 7→8 geçiş rehberleri #30 sırasında tam olarak gözden geçirilmedi; kanıt yapılandırma kapsamı (yalnızca varsayılan `react()` eklentisi, alias ve test seçenekleri) ve yeşil CI'dır.
+- SwaggerUI yalnızca Development ortamında etkindir; OpenAPI belgesini Microsoft.AspNetCore.OpenApi üretir. Mevcut CI SwaggerUI'yi çalıştırmıyordu; bu yüzden geçici `diag/swaggerui-11.0.1` dalında (main'e birleştirilmedi) iki test koşturuldu: koşu 45631504164 **başarısız** (benim tanı varsayımım yanlıştı: uç nokta URL'i index.html içinde değil, yapılandırma betiğinde aranmalıydı), düzeltilmiş koşu 45631808105 başarılı (Development'ta UI, varlıklar ve `/openapi/v1.json`; Testing'de `/swagger` ve `/openapi` 404). Gerçek bir tarayıcıda UI etkileşimi denenmedi.
+- upload-artifact v7.0.2: geçici `diag/upload-artifact-7.0.2` koşusu 45617244695 ilk denemede blob depolamadan "The server is busy" ile başarısız oldu (geçici altyapı sorunu olduğu **kanıtlanmadı**), ikinci denemede başarılı oldu; artifact indirilip içeriği doğrulandı. Gerçek Playwright rapor yükleme yolu bir test hatasıyla uçtan uca denenmedi.
+- #1 Dependabot rebase ile, #2 ve #3 Dependabot rebase ile, #4 Dependabot yanıtlamadığı için GitHub'ın zorlamasız "Update branch" işlemiyle güncellendi.
+- #16 (Node 26 imajı) #29 ile aynı Dockerfile değişikliğini içerdiği için Dependabot tarafından kendiliğinden kapandı; elle kapatılmadı.
+
+## Kalan engeller
+- TypeScript 7 (#8): `typescript-eslint` 8.74.0 (en yeni) `typescript <6.1.0`, `openapi-typescript` 7.13.0 (en yeni) `typescript ^5.x` ister. En yüksek karşılıklı uyumlu sürüm 5.9.3 (mevcut).
+- .NET 11 (#15, #17, #18): Oracle EF Core 11 sağlayıcısı yok (en yeni 10.23.26400, net10.0); .NET 11 LTS değil. Ayrıntılar R.10 değerlendirmesinde.
+- Tüm Oracle doğrulaması Oracle Free lite imajında ve tek GitHub çalıştırıcısında yapıldı; üretim hazırlığı veya tam Oracle doğrulaması iddia edilmez.
