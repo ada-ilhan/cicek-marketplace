@@ -15,7 +15,7 @@
     "@cicek/api-client": "*",
     "@cicek/ui": "*",
     "@tanstack/react-query": "5.104.2",
-    "next": "16.4.5",
+    "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.7"
