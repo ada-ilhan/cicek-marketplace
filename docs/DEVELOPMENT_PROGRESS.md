@@ -371,3 +371,110 @@ Her SHA, resmî `actions/*` deposundaki ilgili etiketin gösterdiği commit ile 
 - TypeScript 7 (#8): `typescript-eslint` 8.74.0 (en yeni) `typescript <6.1.0`, `openapi-typescript` 7.13.0 (en yeni) `typescript ^5.x` ister. En yüksek karşılıklı uyumlu sürüm 5.9.3 (mevcut).
 - .NET 11 (#15, #17, #18): Oracle EF Core 11 sağlayıcısı yok (en yeni 10.23.26400, net10.0); .NET 11 LTS değil. Ayrıntılar R.10 değerlendirmesinde.
 - Tüm Oracle doğrulaması Oracle Free lite imajında ve tek GitHub çalıştırıcısında yapıldı; üretim hazırlığı veya tam Oracle doğrulaması iddia edilmez.
+
+
+---
+
+# Aşama 7.9 kapanışı – bağımlılık bakımının sonu (2026-11-25)
+
+Önceki bölümler değiştirilmemiştir. Doğrulanmış kanıt, çıkarım ve doğrulanamayan noktalar ayrı işaretlenmiştir (**UNVERIFIED**). Koşu bağlantıları: `https://github.com/ada-ilhan/cicek-marketplace/actions/runs/<ID>`.
+
+## Bu bölümde yapılanlar
+
+| İş | PR / commit | Koşu |
+|---|---|---|
+| Docs (R.6–R.9 kaydı) | `dc45db3` | main: 45637316572 |
+| Vite 8.3.5 → 8.3.8 (+ postcss 8.5.30 → 8.5.33, geçişli) | #11, dal başı `94f63c3`, main `bd10bf7` | PR: 45639485903, main: 45640821660 |
+| Konteyner Node tanısı (geçici, birleştirilmedi) | dal ucu `a278a14` | 45639023512 |
+
+## Vite 8.3.8 incelemesi (resmî kaynaklar)
+- Resmî Vite sürüm notları 8.3.6–8.3.8: yalnızca hata düzeltmeleri/performans ve Rolldown yama güncellemeleri. Vite 8.3.8 ve `@vitejs/plugin-react` 6.3.0 için GitHub advisory'de kayıt yok (2026-11-25).
+- Resmî geçiş rehberleri (Vite `v7.0.0` ve `v8.3.8` etiketlerindeki `docs/guide/migration.md`) bu oturumda okundu. Uygulanabilir tek madde Node `^20.19 || >=22.12` (Node 26 karşılar). Uygulanmayanlar (kullanılmıyor): `build.target` varsayılanı, Sass legacy API, `splitVendorChunkPlugin`, `transformIndexHtml` kanca biçimi, `esbuild`/`optimizeDeps.esbuildOptions`, `manualChunks`, CommonJS birlikte çalışma değişiklikleri (Vite yalnızca Vitest altında ve yalnızca varsayılan `react()` eklentisi, `resolve.alias` ve test seçenekleriyle kullanılıyor; üretim paketlemesini Next yapar).
+- Vitest 4.1.12 (peer `vite ^6 || ^7 || ^8`) değişmedi; testler 69+10+12, kapsam kaybı yok.
+- Dependabot rebase isteğime (bir kez) yanıt vermedi; zorlamasız "Update branch" kullanıldı.
+
+## npm `install-scripts` uyarısı (Node 26 / npm 11.20.0)
+- CI'da (GitHub) `node v26.13.1`, `npm 11.20.0`; yerelde de aynı (sahibi tarafından yükseltildi; önceki Node 22.11.0 / npm 10.9.0 artık geçerli değil). Docker (Alpine) derlemesi ve compose-e2e aynı uyarıyı verir.
+- Vite 8 sonrası `esbuild` bağımlılık grafiğinden çıktı; kalan tek paket **`unrs-resolver@1.12.2`** (postinstall: `node postinstall.js`), `eslint-config-next → eslint-import-resolver-typescript → unrs-resolver` zinciriyle gelir.
+- Resmî npm 11.20.0 tanımı (`strict-allow-scripts=false` varsayılan): kapsanmamış betikler **çalışır ve uyarı verilir**; `npm install-scripts ls` ile görülür. npm 12.2.3 tanımında ise kapsanmamış betikler "uyarıyla **engellenir**". Yani bugün bilgilendirmedir; npm 12'ye geçişte betik çalışmayacaktır.
+- Betik yalnızca `napi-postinstall` ile yerel bağlama paketinin varlığını doğrular/hazırlar; asıl ikili paketler `@unrs/resolver-binding-*` isteğe bağlı bağımlılıklarıyla gelir (yerelde `win32-x64-msvc` mevcut). Lint CI'da başarılı. Alpine/musl için `linux-x64-musl` ikilisi isteğe bağlı bağımlılık olarak vardır, ama lint Docker içinde çalıştırılmadığı için orada **doğrulanmadı** (Docker derlemesi lint içermez).
+- `npm audit signatures`: 478 pakette kayıt imzası doğrulandı (yerel çalıştırma).
+- Sonuç: işlevsel sorun veya tedarik zinciri riski bulunmadı; yapılandırma **değiştirilmedi** (uyarı bastırılmadı, `dangerously-allow-all-scripts` açılmadı). npm 12'ye geçişte `allowScripts` kararı yeniden verilmelidir (**UNVERIFIED**: betik engellenirse bağlamanın isteğe bağlı bağımlılıktan yükleneceği varsayımı CI ile sınanmadı).
+- Gözlem: `eslint@9.39.5` için npm "artık desteklenmiyor" uyarısı veriyor (ADR-0011'deki ESLint 10 geçişi hâlâ bekliyor).
+
+## Konteyner içindeki Node sürümü
+Geçici `diag/storefront-node-runtime` dalındaki iş akışı (main'e birleştirilmedi), depo Dockerfile'ını CI'daki gibi derleyip uygulamayı başlatmadan `node` çalıştırdı (koşu 45639023512): **`v26.13.1`**, `linux`, kullanıcı `node` (uid 1000), Alpine Linux. Böylece önceki "konteyner içinde gözlenmedi" sınırı kapandı.
+
+## R.8 – TypeScript kararı (2026-11-25)
+- Kurulu: TypeScript 5.9.3. PR #8 (7.0.2) **birleştirilmeden kapatıldı**.
+- npm kayıt meta verisi (`latest`): `typescript-eslint` 8.74.0 ve `@typescript-eslint/parser` 8.74.0 → peer `typescript >=4.8.4 <6.1.0`; `openapi-typescript` 7.13.0 → peer `typescript ^5.x`. typescript-eslint issue 13196 ("Support TypeScript 7.0"; ESLint "typescript-eslint does not support TS 7.0") kapalı/yinelenen olarak pinned issue 10940'a yönlendirildi; openapi-typescript issue 2841 (TS 7) ve 2723 (TS 6) açık.
+- En yüksek karşılıklı uyumlu sürüm: **5.9.3** (TS 6.x `openapi-typescript` peer'ını, TS 7 her ikisini bozar).
+- Yeniden değerlendirme koşulları: (1) TS 7'yi kapsayan `typescript-eslint` sürümü, (2) hedef TS'yi kapsayan `openapi-typescript` (veya kabul edilmiş yedek), (3) Next, Vitest ve React tür paketlerinin doğrulanması ve tam CI.
+- Peer kontrolü atlanmadı, araçlar değiştirilmedi, Dependabot izleme açık kaldı.
+
+## R.10 – .NET kararı (2026-11-25)
+- Microsoft `dotnet/core` `releases-index.json`: .NET 10 LTS (destek sonu 2028-11-14, son runtime 10.0.15); .NET 11 STS (2026-11-10, destek sonu 2028-11-14, 11.0.0). EF Core 11.0.0 yayında.
+- Oracle sağlayıcısı (NuGet meta verisi): `Oracle.EntityFrameworkCore` 10.23.26400 yalnızca `net10.0`, `EFCore.Relational [10.0.0, 11.0.0)`; 11.x yok. `Oracle.ManagedDataAccess.Core` 23.26.401 net8/net6/netstandard2.1. Oracle'ın kendi belge sayfası ayrıca okunmadı (**UNVERIFIED**).
+- Projeler `net10.0`, `global.json` SDK 10.0.300 (`latestFeature`); belgelenmiş roll-forward kurallarına göre yalnızca Docker etiketi değiştirmek `net10.0` uygulamasını .NET 11 çalışma zamanına taşımaz, `sdk:11.0` sabit SDK'yı karşılamaz (belgelerden çıkarım, denenmedi).
+- "EF Core 10 + .NET 11 çalışma zamanı" teknik olarak mümkün olabilir ama resmî destek beyanı bulunmadı; deneysel geçiş yapılmadı.
+- Karar: **.NET 10 LTS kalır**. #15, #17, #18 birleştirilmeden kapatıldı (gerekçe PR yorumlarında). Yeniden değerlendirme: Oracle EF Core 11 sağlayıcısı veya EF Core 10'un .NET 11'de resmî desteği; hedef framework, `global.json`, paketler ve imajların birlikte geçişi ve tam CI; LTS'den ayrılmak için somut gerekçe.
+- Swashbuckle SwaggerUI 11.0.1 .NET 11'den bağımsız olarak #31 ile geçti (yalnızca SwaggerUI paketi).
+
+## Dependabot PR uzlaştırması (31 PR)
+- **Birleşti:** #1, #2, #3, #4 (Actions), #5 (TimeProvider.Testing), #10 (axe), #11 (vite 8.3.8), #13 (eslint-config-next), #14 (Playwright), #19 (JwtBearer), #21 (next 16.4.5), #22 (typescript-eslint/minimatch), #25 (Oracle sağlayıcıları); özel PR'lar #23, #24, #26, #27, #28, #29, #30, #31.
+- **Kapsandı/ikame edildi (Dependabot veya sistem tarafından kapandı):** #6, #9 (#25 ile), #12 (Swashbuckle; #23 ve #31 ile), #16 (Node 26; #29 ile), #20 (#21 ile), #7 (node 25-alpine, güncel Dependabot önerisi 26 ile değişti).
+- **Gerekçeli kapatıldı (bu bölümde):** #8 (TypeScript 7), #15, #17, #18 (.NET 11 imajları).
+- **Açık: yok.** Bu, "tüm bağımlılıklar mutlak güncel" demek değildir: ertelenen majörler (TypeScript 7, .NET 11, ESLint 10 vb.) engeller kalkınca Dependabot tarafından yeniden önerilebilir.
+
+## Dependabot bakım politikası (öneri; uygulanmadı, ayrı onay gerekir)
+Mevcut `.github/dependabot.yml`: dört ekosistem (actions, nuget, npm, docker), haftalık, `ignore` yok. #8, #15, #17, #18 elle kapatıldığı için aynı sürüm yeniden açılmaz ama yeni yama sürümleri (ör. 7.0.3, 11.0.1) yeni PR üretebilir. Önerilen dar kural (yalnızca majör sürüm güncellemeleri):
+```yaml
+  - package-ecosystem: npm
+    directory: /frontend
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: docker
+    directory: /deploy/docker
+    ignore:
+      - dependency-name: "dotnet/sdk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet/aspnet"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet/runtime"
+        update-types: ["version-update:semver-major"]
+```
+Etkisi: bu üç paket için majör PR'lar durur; yama/minor ve (GitHub belgelerine göre sürüm-güncelleme `ignore` kuralları güvenlik güncellemelerini engellemez, bu oturumda ayrıca doğrulanmadı) güvenlik güncellemeleri sürer. Engeller kalkınca kural kaldırılır. Dependabot kapatılmadı, tüm majörler yok sayılmadı.
+
+## Son bağımlılık sürümleri
+Çalışma zamanı: Node 26.13.1 / npm 11.20.0 (CI, Docker, yerel); `.nvmrc` 26; `engines >=26.0.0 <27`. Frontend: next 16.4.6, react/react-dom 19.3.0, TypeScript 5.9.3, typescript-eslint 8.74.0, eslint 9.39.5, vite 8.3.8, @vitejs/plugin-react 6.3.0, vitest 4.1.12, @playwright/test 1.65.1, @axe-core/playwright 4.14.0. Backend: .NET 10 (SDK 10.0.300), Microsoft paketleri 10.0.15, Oracle.EntityFrameworkCore 10.23.26400, Oracle.ManagedDataAccess.Core 23.26.401, Swashbuckle.AspNetCore.SwaggerUI 11.0.1, TimeProvider.Testing 10.11.0. Actions: checkout v7.0.1, setup-dotnet v6.1.0, upload-artifact v7.0.2, setup-node v7.1.0 (SHA sabitli).
+
+## Dal temizliği (2026-11-25)
+Her dal için GitHub'da PR durumu (birleşmiş/kapalı) ve dal ucunun PR'ın son head'ine eşitliği doğrulandı (squash birleşmelerde dal "önde" görünür; benzersiz iş yoktu), çalışan/bekleyen iş akışı ve aktif worktree yoktu. Tam adlarıyla silindi (PR head'leri `refs/pull/<N>/head` ile erişilebilir kalır):
+
+| Dal (uç) | PR |
+|---|---|
+| `chore/microsoft-10.0.15-alignment` (`f422c2c`) | #24 birleşti |
+| `chore/swashbuckle-swaggerui-10.3.1` (`821a709`) | #23 birleşti |
+| `chore/next-16.4.6` (`0f7dc36`) | #28 birleşti |
+| `chore/node-26` (`7692b36`) | #29 birleşti |
+| `chore/vite-8` (`fe941af`) | #30 birleşti |
+| `chore/swaggerui-11.0.1` (`2cd7528`) | #31 birleşti |
+| `fix/e2e-image-upload-race` (`c6cb1ce`) | #26 birleşti |
+| `fix/e2e-journey-time-budget` (`6efcbdb`) | #27 birleşti |
+| `diag/upload-artifact-7.0.2` (`a5a7eb9`; koşu 45617244695) | PR yok, birleştirilmedi |
+| `diag/swaggerui-11.0.1` (`2f5f70f`; koşular 45631504164, 45631808105) | PR yok, birleştirilmedi |
+| `diag/storefront-node-runtime` (`a278a14`; koşu 45639023512) | PR yok, birleştirilmedi |
+| `dependabot/npm_and_yarn/frontend/axe-core/playwright-4.14.0` (`7da6c12`) | #10 birleşti |
+| `dependabot/npm_and_yarn/frontend/vite-8.3.5` (`94f63c3`) | #11 birleşti |
+| `dependabot/nuget/backend/multi-cf5404301a` (`3c09cb5`) | #25 birleşti |
+| `dependabot/npm_and_yarn/frontend/typescript-7.0.2` (`47e09c9`) | #8 kapalı |
+| `dependabot/docker/deploy/docker/dotnet/sdk-11.0` (`9a3b7b8`) | #18 kapalı |
+
+Kalan: yalnızca `main` (yerel ve uzak). İş akışı çalışma geçmişi ve artifact'lar silinmedi.
+
+## Sınırlar ve kapanış değerlendirmesi
+- **Doğrulanmış CI hazırlığı:** her birleşme ve son main commit'i için dört CI işi (backend 299/299, frontend 69+10+12, duman 4/4, Playwright 16/16, flaky/retry 0, `npm audit` 0, NuGet açık yok) yeşil; Dependabot uyarıları 15 fixed / 0 açık / 0 dismissed.
+- **Bağımlılık bakımı tamamlandı** (yukarıdaki ertelenmiş majörler gerekçeleriyle belgelendi). Bu bir "tüm bağımlılıklar güncel" iddiası değildir.
+- **Üretim hazırlığı iddia edilmez.** Tüm Oracle doğrulaması Oracle Free *lite* imajında ve tek GitHub çalıştırıcısında yapıldı; tam Oracle Free, yük, yedekleme/geri yükleme, HTTPS/alan adı, sır yönetimi ve izleme sınanmadı. Sıfır bilinen uyarı uygulamanın tamamen güvenli olduğunu kanıtlamaz.
+- Doğrulanmayanlar: Node 26 için üretici "destekleniyor" beyanı bulunmadı (uyumluluk yalnızca CI ile gösterildi); SwaggerUI tarayıcı etkileşimi denenmedi; artifact yükleme hata yolu gerçek bir test hatasıyla denenmedi; Alpine'de lint/`unrs-resolver` ikilisi doğrulanmadı; Oracle'ın kendi belge sayfası okunmadı.
